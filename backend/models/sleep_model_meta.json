@@ -1,0 +1,13 @@
+{
+  "version": "rf-20261113-233107",
+  "trained_at": "2026-11-13T23:31:07.684981+00:00",
+  "n_synthetic": 800,
+  "n_real": 0,
+  "holdout_mae": {
+    "frequency_khz": 24.36,
+    "amplitude_percent": 4.19,
+    "timer_minutes": 3.31
+  },
+  "holdout_waveform_accuracy": 0.656,
+  "note": "Metrics are measured mostly against SIMULATED data. They show the model learned the simulation, not that it improves real sleep."
+}
