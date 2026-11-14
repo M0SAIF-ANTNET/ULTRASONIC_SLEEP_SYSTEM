@@ -16,6 +16,11 @@ def _database_url() -> str:
     """PostgreSQL in production (e.g. Neon). Accepts postgres:// and postgresql:// URLs."""
     url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")
     if url:
+        # Some providers append options psycopg2 rejects (e.g. "supa=...").
+        if "?" in url:
+            base, query = url.split("?", 1)
+            kept = [p for p in query.split("&") if p.split("=")[0] not in ("supa",)]
+            url = base + ("?" + "&".join(kept) if kept else "")
         for prefix in ("postgres://", "postgresql://"):
             if url.startswith(prefix):
                 return "postgresql+psycopg2://" + url[len(prefix):]

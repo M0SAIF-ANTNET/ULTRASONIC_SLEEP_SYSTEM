@@ -1,11 +1,13 @@
 """FastAPI app. The ML model only RECOMMENDS; it never touches the ESP32.
 Run from backend/:  uvicorn app.main:app --reload
 """
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from . import ml_model, service
@@ -19,25 +21,19 @@ _ready = False
 
 
 def ensure_ready():
-    """Create tables and make sure a model exists. Runs once per process.
+    """Create tables and load the model. Runs once per process.
 
     Called lazily from the DB dependency (not only at startup) so it also works
-    on serverless platforms, where /tmp is empty after every cold start. A
-    missing model is rebuilt from simulated data PLUS validated real sessions
-    already stored in the database.
+    on serverless platforms. After a cold start /tmp is empty, so the model that
+    ships with the repo (simulated data only) is loaded; it is retrained from
+    the database once enough new validated sessions exist. Per-astronaut
+    personalization reads the database directly, so it survives cold starts.
     """
     global _ready
     if _ready:
         return
     Base.metadata.create_all(engine)
-    if ml_model.MODEL_PATH.exists():
-        ml_model.get_meta()
-    else:
-        db = SessionLocal()
-        try:
-            service.retrain_if_needed(db, force=True)
-        finally:
-            db.close()
+    ml_model.get_meta()  # loads retrained or bundled model; no slow training here
     _ready = True
 
 
@@ -65,7 +61,21 @@ def _get_session(db: Session, session_id: int) -> SleepSession:
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "limits": LIMITS}
+    """Open this URL after deploying: it shows which part is broken."""
+    info = {"status": "ok", "limits": LIMITS, "database": engine.dialect.name}
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        info["database_ok"] = True
+    except Exception as e:
+        logging.exception("Database check failed")
+        info.update(status="error", database_ok=False, database_error=type(e).__name__)
+    try:
+        info["model_version"] = ml_model.get_meta()["version"]
+    except Exception as e:
+        logging.exception("Model load failed")
+        info.update(status="error", model_error=type(e).__name__)
+    return info
 
 
 @app.post("/api/recommend")

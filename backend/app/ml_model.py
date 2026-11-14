@@ -9,11 +9,13 @@ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.metrics import accuracy_score, mean_absolute_error
 from sklearn.model_selection import train_test_split
 
-from .config import (MODEL_DIR, NUMERIC_TARGETS, QUIZ_FEATURES,
+from .config import (BASE_DIR, MODEL_DIR, NUMERIC_TARGETS, QUIZ_FEATURES,
                      REAL_SAMPLE_WEIGHT, WAVEFORM_TARGET)
 from .synthetic import generate_synthetic
 
 MODEL_PATH = MODEL_DIR / "sleep_model.joblib"
+# Initial model trained ONLY on simulated data, committed to the repo.
+BUNDLED_PATH = BASE_DIR / "models" / "initial_model.joblib"
 META_PATH = MODEL_DIR / "sleep_model_meta.json"
 _bundle = None  # in-memory cache
 
@@ -71,12 +73,18 @@ def train_model(real_df: pd.DataFrame | None = None) -> dict:
 
 
 def _load() -> dict:
+    """Load order: retrained model -> pre-trained simulated model shipped with the
+    repo (instant, no training on cold start) -> train from scratch (slow last resort)."""
     global _bundle
     if _bundle is None:
-        if not MODEL_PATH.exists():
-            train_model()
-        else:
-            _bundle = joblib.load(MODEL_PATH)
+        for path in (MODEL_PATH, BUNDLED_PATH):
+            if path.exists():
+                try:
+                    _bundle = joblib.load(path)
+                    return _bundle
+                except Exception:
+                    pass  # e.g. scikit-learn version mismatch -> try next option
+        train_model()
     return _bundle
 
 
