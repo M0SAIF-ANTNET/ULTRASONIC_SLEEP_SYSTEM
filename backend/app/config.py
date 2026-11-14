@@ -3,13 +3,31 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-MODEL_DIR = BASE_DIR / "models"
-FRONTEND_DIR = BASE_DIR.parent / "frontend"
 
-# PostgreSQL in production, e.g.:
-#   DATABASE_URL=postgresql+psycopg2://user:pass@localhost:5432/sleepdb
-# Falls back to a local SQLite file so the demo runs with zero setup.
-DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'sleep_demo.db'}")
+# On Vercel the deployed filesystem is read-only except /tmp (which is wiped
+# on cold starts). So the model file lives in /tmp there and is rebuilt from
+# the database when missing. The website is served from public/.
+ON_VERCEL = bool(os.getenv("VERCEL"))
+MODEL_DIR = Path("/tmp/models") if ON_VERCEL else BASE_DIR / "models"
+FRONTEND_DIR = BASE_DIR.parent / "public"
+
+
+def _database_url() -> str:
+    """PostgreSQL in production (e.g. Neon). Accepts postgres:// and postgresql:// URLs."""
+    url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")
+    if url:
+        for prefix in ("postgres://", "postgresql://"):
+            if url.startswith(prefix):
+                return "postgresql+psycopg2://" + url[len(prefix):]
+        return url
+    # No database configured. Local: SQLite file. Vercel: temporary SQLite in
+    # /tmp, which LOSES ALL DATA on cold start. Set DATABASE_URL on Vercel.
+    if ON_VERCEL:
+        return "sqlite:////tmp/sleep_demo.db"
+    return f"sqlite:///{BASE_DIR / 'sleep_demo.db'}"
+
+
+DATABASE_URL = _database_url()
 
 # ---- Safety limits -------------------------------------------------------
 # Demo mode: these match the website sliders. When the real hardware limits

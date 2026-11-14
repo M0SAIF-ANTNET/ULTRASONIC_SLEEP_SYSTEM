@@ -1,0 +1,16 @@
+[project]
+name = "ultrasonic-sleep-system"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi",
+    "sqlalchemy",
+    "psycopg2-binary",
+    "scikit-learn",
+    "pandas",
+    "numpy",
+    "joblib",
+]
+
+[tool.vercel]
+entrypoint = "backend.app.main:app"

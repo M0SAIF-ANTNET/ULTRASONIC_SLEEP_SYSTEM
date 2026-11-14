@@ -133,10 +133,11 @@ def real_training_frame(db: Session) -> pd.DataFrame:
 
 def retrain_if_needed(db: Session, force: bool = False) -> dict | None:
     real = real_training_frame(db)
-    new_since = len(real) - ml_model.get_meta().get("n_real", 0)
-    if force or new_since >= MIN_NEW_REAL_FOR_RETRAIN:
-        return ml_model.train_model(real)
-    return None
+    if not force:
+        new_since = len(real) - ml_model.get_meta().get("n_real", 0)
+        if new_since < MIN_NEW_REAL_FOR_RETRAIN:
+            return None
+    return ml_model.train_model(real)
 
 
 def model_status(db: Session) -> dict:

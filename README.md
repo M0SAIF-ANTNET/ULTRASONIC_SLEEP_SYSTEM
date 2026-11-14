@@ -19,6 +19,18 @@ Default database is a local SQLite file; for PostgreSQL set:
 export DATABASE_URL=postgresql+psycopg2://user:pass@localhost:5432/sleepdb
 ```
 
+## Deploy on Vercel
+
+1. Repo root must contain `pyproject.toml` (sets `entrypoint = "backend.app.main:app"`),
+   `backend/` and `public/` (the website).
+2. Create a PostgreSQL database (e.g. Neon via Vercel Storage) and set the
+   `DATABASE_URL` environment variable. Without it the app falls back to a temporary
+   SQLite file in `/tmp` and **loses all data on cold start**.
+3. The model file lives in `/tmp` on Vercel and is rebuilt automatically after a cold
+   start from simulated data + validated sessions stored in the database.
+4. "REAL ESP32" mode will not work from the https site: browsers block `ws://` from
+   https pages. Use the local `http://` version when connecting to the hardware.
+
 ## Layout
 
 ```
@@ -31,7 +43,7 @@ backend/app/
   schemas.py     request validation
   service.py     recommend, personalize, evaluate feedback, retrain
   main.py        REST endpoints
-frontend/index.html   original page + 3 new panels (quiz, recommendation, feedback)
+public/index.html     original page + 3 new panels (quiz, recommendation, feedback)
 ```
 
 ## Workflow

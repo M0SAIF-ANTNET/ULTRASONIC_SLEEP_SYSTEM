@@ -10,15 +10,45 @@ from sqlalchemy.orm import Session
 
 from . import ml_model, service
 from .config import FRONTEND_DIR, LIMITS
-from .database import Base, SleepSession, engine, get_db
+from .database import Base, SessionLocal, SleepSession, engine, get_db
 from .safety import validate_settings
 from .schemas import Feedback, RecommendRequest, Settings
 
 
+_ready = False
+
+
+def ensure_ready():
+    """Create tables and make sure a model exists. Runs once per process.
+
+    Called lazily from the DB dependency (not only at startup) so it also works
+    on serverless platforms, where /tmp is empty after every cold start. A
+    missing model is rebuilt from simulated data PLUS validated real sessions
+    already stored in the database.
+    """
+    global _ready
+    if _ready:
+        return
+    Base.metadata.create_all(engine)
+    if ml_model.MODEL_PATH.exists():
+        ml_model.get_meta()
+    else:
+        db = SessionLocal()
+        try:
+            service.retrain_if_needed(db, force=True)
+        finally:
+            db.close()
+    _ready = True
+
+
+def db_session():
+    ensure_ready()
+    yield from get_db()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(engine)
-    ml_model.get_meta()  # loads the model, or trains the initial (simulated) one
+    ensure_ready()
     yield
 
 
@@ -39,7 +69,7 @@ def health():
 
 
 @app.post("/api/recommend")
-def recommend(req: RecommendRequest, db: Session = Depends(get_db)):
+def recommend(req: RecommendRequest, db: Session = Depends(db_session)):
     s = service.recommend(db, req.astronaut_id, req.quiz.model_dump())
     return {
         "session_id": s.id,
@@ -53,7 +83,7 @@ def recommend(req: RecommendRequest, db: Session = Depends(get_db)):
 
 
 @app.post("/api/sessions/{session_id}/approve")
-def approve(session_id: int, settings: Settings, db: Session = Depends(get_db)):
+def approve(session_id: int, settings: Settings, db: Session = Depends(db_session)):
     s = _get_session(db, session_id)
     try:
         validate_settings(settings.model_dump())
@@ -69,7 +99,7 @@ def approve(session_id: int, settings: Settings, db: Session = Depends(get_db)):
 
 
 @app.post("/api/sessions/{session_id}/start")
-def start(session_id: int, settings: Settings, db: Session = Depends(get_db)):
+def start(session_id: int, settings: Settings, db: Session = Depends(db_session)):
     """Frontend reports what was really running when START was pressed."""
     s = _get_session(db, session_id)
     if s.approved_at is None:
@@ -88,7 +118,7 @@ def start(session_id: int, settings: Settings, db: Session = Depends(get_db)):
 
 
 @app.post("/api/sessions/{session_id}/feedback")
-def feedback(session_id: int, fb: Feedback, db: Session = Depends(get_db)):
+def feedback(session_id: int, fb: Feedback, db: Session = Depends(db_session)):
     s = _get_session(db, session_id)
     if s.started_at is None:
         raise HTTPException(409, "Session was never started")
@@ -98,7 +128,7 @@ def feedback(session_id: int, fb: Feedback, db: Session = Depends(get_db)):
 
 
 @app.get("/api/astronauts/{astronaut_id}/pending")
-def pending(astronaut_id: str, db: Session = Depends(get_db)):
+def pending(astronaut_id: str, db: Session = Depends(db_session)):
     """Latest started session still waiting for morning feedback (or null)."""
     s = (db.query(SleepSession)
          .filter(SleepSession.astronaut_id == astronaut_id,
@@ -109,19 +139,19 @@ def pending(astronaut_id: str, db: Session = Depends(get_db)):
 
 
 @app.get("/api/astronauts/{astronaut_id}/sessions")
-def history(astronaut_id: str, db: Session = Depends(get_db)):
+def history(astronaut_id: str, db: Session = Depends(db_session)):
     rows = (db.query(SleepSession).filter(SleepSession.astronaut_id == astronaut_id)
             .order_by(SleepSession.id.desc()).limit(30).all())
     return {"sessions": [service.session_to_dict(r) for r in rows]}
 
 
 @app.get("/api/model/status")
-def model_status(db: Session = Depends(get_db)):
+def model_status(db: Session = Depends(db_session)):
     return service.model_status(db)
 
 
 @app.post("/api/model/retrain")
-def retrain(db: Session = Depends(get_db)):
+def retrain(db: Session = Depends(db_session)):
     return service.retrain_if_needed(db, force=True)
 
 
